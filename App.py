@@ -26,8 +26,22 @@ if upload_dados is not None and upload_metas is not None:
     with st.spinner('Processando e cruzando os dados...'):
         try:
             # --- LEITURA E LIMPEZA: DADOS ---
-            df_dados = pd.read_csv(upload_dados, sep=';')
+            # Tenta ler com ';' primeiro (Padrão Brasil), se falhar, tenta com ','
+            try:
+                df_dados = pd.read_csv(upload_dados, sep=';')
+                if len(df_dados.columns) < 3:
+                    upload_dados.seek(0)
+                    df_dados = pd.read_csv(upload_dados, sep=',')
+            except:
+                upload_dados.seek(0)
+                df_dados = pd.read_csv(upload_dados, sep=',')
+                
             df_dados.columns = df_dados.columns.str.strip()
+            
+            # Checa se a coluna principal existe
+            if 'Qtd Prevista' not in df_dados.columns:
+                st.error("Erro: A coluna 'Qtd Prevista' não foi encontrada nos Dados de Entrega.")
+                st.stop()
             
             df_dados['Qtd Prevista'] = pd.to_numeric(df_dados['Qtd Prevista'], errors='coerce')
             df_dados['Entregue no Prazo'] = pd.to_numeric(df_dados['Entregue no Prazo'], errors='coerce')
@@ -37,7 +51,20 @@ if upload_dados is not None and upload_metas is not None:
             df_dados['Chave_Busca'] = df_dados['UF'].astype(str).str.strip() + df_dados['Grupo Transp.'].astype(str).str.strip()
 
             # --- LEITURA E LIMPEZA: METAS ---
-            df_meta = pd.read_csv(upload_metas, skiprows=2)
+            try:
+                df_meta = pd.read_csv(upload_metas, skiprows=2, sep=';')
+                if len(df_meta.columns) < 5:
+                    upload_metas.seek(0)
+                    df_meta = pd.read_csv(upload_metas, skiprows=2, sep=',')
+            except:
+                upload_metas.seek(0)
+                df_meta = pd.read_csv(upload_metas, skiprows=2, sep=',')
+            
+            # Trava de segurança para garantir que leu no mínimo as 5 colunas vitais
+            if len(df_meta.columns) < 5:
+                st.error(f"Erro: O arquivo de Metas não pôde ser lido corretamente (Encontradas apenas {len(df_meta.columns)} colunas). Certifique-se de que salvou a aba correta em CSV.")
+                st.stop()
+
             df_meta = df_meta.iloc[:, :5].copy()
             df_meta.columns = ['Estado', 'Concatenar_2', 'Transportadora', 'N.S Projetado', 'Prazo Projetado']
             
@@ -85,11 +112,9 @@ if upload_dados is not None and upload_metas is not None:
             # --- INTERFACE DE RESULTADOS ---
             st.success("✅ Análise concluída com sucesso!")
             
-            # Mostra uma prévia da tabela no próprio aplicativo
             st.write("### Prévia dos Dados Processados:")
-            st.dataframe(df_analise.head(15)) # Mostra as 15 primeiras linhas
+            st.dataframe(df_analise.head(15))
             
-            # Botão de Download
             csv = df_analise.to_csv(index=False, sep=';', decimal=',').encode('utf-8')
             st.download_button(
                 label="📥 Baixar Planilha Completa (CSV)",
@@ -99,4 +124,4 @@ if upload_dados is not None and upload_metas is not None:
             )
 
         except Exception as e:
-            st.error(f"Ocorreu um erro ao processar os arquivos. Verifique se as colunas estão corretas. Detalhe do erro: {e}")
+            st.error(f"Ocorreu um erro crítico. Detalhe técnico: {e}")
