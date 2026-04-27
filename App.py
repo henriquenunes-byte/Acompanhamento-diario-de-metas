@@ -66,4 +66,56 @@ if upload_dados is not None and upload_metas is not None:
             # Substitui as vírgulas por pontos antes de transformar em número (evita erros em números brasileiros)
             df_meta['N.S Projetado'] = pd.to_numeric(df_meta['N.S Projetado'].astype(str).str.replace(',', '.'), errors='coerce')
             df_meta['Prazo Projetado'] = pd.to_numeric(df_meta['Prazo Projetado'].astype(str).str.replace(',', '.'), errors='coerce')
-            df_meta['Chave_Busca'] = df
+            df_meta['Chave_Busca'] = df_meta['Estado'].astype(str).str.strip() + df_meta['Transportadora'].astype(str).str.strip()
+
+            # --- CRUZAMENTO ---
+            dict_ns_meta = dict(zip(df_meta['Chave_Busca'], df_meta['N.S Projetado']))
+            dict_prazo_meta = dict(zip(df_meta['Chave_Busca'], df_meta['Prazo Projetado']))
+            
+            df_dados['N.S Projetado (Meta)'] = df_dados['Chave_Busca'].map(dict_ns_meta)
+            df_dados['Prazo Projetado (Meta)'] = df_dados['Chave_Busca'].map(dict_prazo_meta)
+
+            # --- REGRAS DE ADERÊNCIA ---
+            df_dados['Aderente N.S?'] = np.where(
+                df_dados['N.S Projetado (Meta)'].isna(), 'Sem Meta',
+                np.where(df_dados['N.S Real (Calculado)'] >= df_dados['N.S Projetado (Meta)'], 'Sim', 'Não')
+            )
+            
+            df_dados['Aderente Prazo?'] = np.where(
+                df_dados['Prazo Projetado (Meta)'].isna(), 'Sem Meta',
+                np.where(df_dados['Prazo Real'] <= df_dados['Prazo Projetado (Meta)'], 'Sim', 'Não')
+            )
+
+            # --- FORMATAÇÃO FINAL ---
+            df_dados['N.S Real (Calculado)'] = (df_dados['N.S Real (Calculado)'] * 100).round(2).astype(str) + '%'
+            df_dados['N.S Projetado (Meta)'] = (df_dados['N.S Projetado (Meta)'] * 100).round(2).astype(str) + '%'
+            df_dados['N.S Projetado (Meta)'] = df_dados['N.S Projetado (Meta)'].replace('nan%', '-')
+            
+            colunas_finais = [
+                'Dt Prazo Entrega', 'UF', 'Grupo Transp.', 'Qtd Prevista', 'Entregue no Prazo', 
+                'N.S Real (Calculado)', 'N.S Projetado (Meta)', 'Aderente N.S?', 
+                'Prazo Prometido', 'Prazo Real', 'Prazo Projetado (Meta)', 'Aderente Prazo?'
+            ]
+            
+            df_analise = df_dados[colunas_finais].copy()
+            df_analise['Dt Prazo Entrega'] = pd.to_datetime(df_analise['Dt Prazo Entrega'], format='%d/%m/%Y', errors='coerce')
+            df_analise = df_analise.sort_values(by=['Dt Prazo Entrega', 'UF'])
+            df_analise['Dt Prazo Entrega'] = df_analise['Dt Prazo Entrega'].dt.strftime('%d/%m/%Y')
+
+            # --- INTERFACE DE RESULTADOS ---
+            st.success("✅ Análise concluída com sucesso!")
+            
+            st.write("### Prévia dos Dados Processados:")
+            st.dataframe(df_analise.head(15)) 
+            
+            # O parâmetro decimal=',' garante que o excel não confunda números no Brasil
+            csv = df_analise.to_csv(index=False, sep=';', decimal=',').encode('utf-8')
+            st.download_button(
+                label="📥 Baixar Planilha Completa (CSV)",
+                data=csv,
+                file_name='analise_aderencia_metas.csv',
+                mime='text/csv',
+            )
+
+        except Exception as e:
+            st.error(f"Erro ao processar: {e}")
